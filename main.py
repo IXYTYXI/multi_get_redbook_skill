@@ -147,18 +147,47 @@ async def _login(timeout: int = 480) -> int:
     return 1
 
 
+def cmd_search(keyword: str, n: int) -> int:
+    return asyncio.run(_search(keyword, n))
+
+
+async def _search(keyword: str, n: int) -> int:
+    from core.browser import XhsBrowser
+    from scrapers.keyword import KeywordScraper
+
+    try:
+        sys.stdout.reconfigure(errors="replace")
+    except Exception:
+        pass
+
+    async with XhsBrowser() as browser:
+        notes = await KeywordScraper(browser).search_notes(keyword, max_count=n)
+
+    print(f"\nkeyword='{keyword}'  got {len(notes)} notes\n")
+    for i, x in enumerate(notes, 1):
+        print(f"{i:>2}. [{x.note_type}] {x.title[:36]}")
+        print(f"    by {x.author_nickname} | 赞{x.liked_count} 藏{x.collected_count} 评{x.comment_count}")
+        print(f"    id={x.note_id} token={'yes' if x.xsec_token else 'no'}")
+    return 0 if notes else 1
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="xhs-scraper")
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("check", help="offline smoke test (no network/login)")
     p_login = sub.add_parser("login", help="visible-browser Xiaohongshu login -> cookies.json")
     p_login.add_argument("--timeout", type=int, default=480, help="max seconds to wait for login")
+    p_search = sub.add_parser("search", help="keyword note search (needs a saved session)")
+    p_search.add_argument("keyword")
+    p_search.add_argument("-n", "--max-count", type=int, default=20, dest="n")
     args = parser.parse_args()
 
     if args.command == "check":
         return cmd_check()
     if args.command == "login":
         return cmd_login(args.timeout)
+    if args.command == "search":
+        return cmd_search(args.keyword, args.n)
     parser.print_help()
     return 0
 

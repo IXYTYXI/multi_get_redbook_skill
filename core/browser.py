@@ -68,17 +68,36 @@ class XhsBrowser:
         )
         await self._context.add_init_script(STEALTH_JS)
 
-        # Prefer a saved cookies.json (from `login`), else the XHS_COOKIE string.
+        # Cookie source preference:
+        #   1) cookies.json  — Playwright cookie array (written by `login`)
+        #   2) xhs-cookies.json — {"XHS_COOKIE": "<cookie string>"}
+        #   3) XHS_COOKIE env string
+        loaded = False
         if COOKIE_FILE.exists():
             try:
                 with open(COOKIE_FILE, "r", encoding="utf-8") as f:
                     await self._context.add_cookies(json.load(f))
+                loaded = True
             except Exception as e:
                 print(f"[Browser] Failed to load cookies.json: {e}")
-        elif self._cookie:
+        if not loaded:
+            alt = COOKIE_FILE.parent / "xhs-cookies.json"
+            if alt.exists():
+                try:
+                    s = json.load(open(alt, encoding="utf-8")).get("XHS_COOKIE", "")
+                    if s:
+                        await self._context.add_cookies(_cookie_string_to_list(s))
+                        loaded = True
+                except Exception as e:
+                    print(f"[Browser] Failed to load xhs-cookies.json: {e}")
+        if not loaded and self._cookie:
             await self._context.add_cookies(_cookie_string_to_list(self._cookie))
 
         self._page = await self._context.new_page()
+
+    @property
+    def context(self):
+        return self._context
 
     async def navigate(self, url: str):
         try:

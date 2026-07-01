@@ -13,8 +13,8 @@ Self-built skill to scrape Xiaohongshu data (note search / author profile / note
 | Stage | Scope | State |
 |---|---|---|
 | 0 | Scaffold, reused storage / downloader / date-filter, data models | ✅ done |
-| 1 | Browser-injection signing (`x-s`/`x-t`/`x-s-common`) | ⏳ login-gated stub |
-| 2 | Scrapers: search / note / comment / user (with `xsec_token` passthrough) | ⏳ stub |
+| 1 | Session via `login`/cookies; **search verified live** (real notes + `xsec_token`) | ✅ done |
+| 2 | Note search implemented (response interception); note/comment/user | 🚧 search done, rest stub |
 | 3 | Feishu storage wiring, media, `scrape_all` orchestration | ⏳ TODO |
 | 4 | Docs, `.env.example`, known limits | ⏳ TODO |
 
@@ -59,7 +59,7 @@ core/sign.py           x-s / x-t / x-s-common (browser-injection; Stage 1)
 core/browser.py        Playwright logged-in context + in-page fetch
 core/datefilter.py     client-side date-window filter (reused)
 models/data.py         NoteInfo / XhsUserInfo / CommentInfo
-scrapers/keyword.py    note search (extracts xsec_token)  [stub]
+scrapers/keyword.py    note search — response interception  [done]
 scrapers/note.py       note detail (token passthrough)    [stub]
 scrapers/comment.py    comments (cursor paging)           [stub]
 scrapers/user.py       author profile                     [stub]

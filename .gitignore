@@ -1,6 +1,7 @@
 # Secrets / local config
 .env
 cookies.json
+xhs-cookies.json
 
 # Python
 __pycache__/
