@@ -171,6 +171,98 @@ async def _search(keyword: str, n: int) -> int:
     return 0 if notes else 1
 
 
+def cmd_note(note_id: str, xsec_token: str) -> int:
+    return asyncio.run(_note(note_id, xsec_token))
+
+
+async def _note(note_id: str, xsec_token: str) -> int:
+    from core.browser import XhsBrowser
+    from scrapers.note import NoteScraper
+
+    try:
+        sys.stdout.reconfigure(errors="replace")
+    except Exception:
+        pass
+
+    async with XhsBrowser() as browser:
+        detail = await NoteScraper(browser).get_note(note_id, xsec_token)
+
+    if not detail:
+        print(f"Failed to get note {note_id}")
+        return 1
+    print(f"Title:   {detail.title}")
+    print(f"Author:  {detail.author_nickname}")
+    print(f"Type:    {detail.note_type}")
+    print(f"Likes:   {detail.liked_count}  Collects: {detail.collected_count}  Comments: {detail.comment_count}")
+    print(f"Tags:    {detail.tags}")
+    print(f"Video:   {detail.video_url or 'N/A'}")
+    img_count = len(detail.image_urls.split(",")) if detail.image_urls else 0
+    print(f"Images:  {img_count}")
+    print(f"Desc:    {detail.desc[:200]}")
+    return 0
+
+
+def cmd_comment(note_id: str, xsec_token: str, n: int) -> int:
+    return asyncio.run(_comment(note_id, xsec_token, n))
+
+
+async def _comment(note_id: str, xsec_token: str, n: int) -> int:
+    from core.browser import XhsBrowser
+    from scrapers.comment import CommentScraper
+
+    try:
+        sys.stdout.reconfigure(errors="replace")
+    except Exception:
+        pass
+
+    async with XhsBrowser() as browser:
+        comments = await CommentScraper(browser).get_comments(note_id, xsec_token, max_count=n)
+
+    print(f"\nnote_id={note_id}  got {len(comments)} comments\n")
+    for i, c in enumerate(comments, 1):
+        print(f"{i:>2}. [{c.user_nickname}] {c.content[:60]}")
+        print(f"    likes={c.like_count} replies={c.sub_comment_count} time={c.create_time}")
+    return 0 if comments else 1
+
+
+def cmd_user(user_id: str, xsec_token: str, notes: bool, n: int) -> int:
+    return asyncio.run(_user(user_id, xsec_token, notes, n))
+
+
+async def _user(user_id: str, xsec_token: str, get_notes: bool, n: int) -> int:
+    from core.browser import XhsBrowser
+    from scrapers.user import UserScraper
+
+    try:
+        sys.stdout.reconfigure(errors="replace")
+    except Exception:
+        pass
+
+    async with XhsBrowser() as browser:
+        us = UserScraper(browser)
+        info = await us.get_user(user_id, xsec_token)
+        if not info:
+            print(f"Failed to get user {user_id}")
+            return 1
+        print(f"Nickname:  {info.nickname}")
+        print(f"Fans:      {info.fans}")
+        print(f"Follows:   {info.follows}")
+        print(f"Notes:     {info.note_count}")
+        print(f"Desc:      {info.desc[:100]}")
+
+        if get_notes:
+            notes_list = await us.get_user_notes(user_id, max_count=n, xsec_token=xsec_token)
+            print(f"\n--- User notes ({len(notes_list)}) ---")
+            for i, x in enumerate(notes_list, 1):
+                print(f"{i:>2}. {x.title[:40]}  likes={x.liked_count}")
+    return 0
+
+
+def cmd_scrape_all(keyword: str, n: int) -> int:
+    from scrape_all import main as sa_main
+    return asyncio.run(sa_main(keyword, n))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="xhs-scraper")
     sub = parser.add_subparsers(dest="command")
@@ -180,6 +272,26 @@ def main() -> int:
     p_search = sub.add_parser("search", help="keyword note search (needs a saved session)")
     p_search.add_argument("keyword")
     p_search.add_argument("-n", "--max-count", type=int, default=20, dest="n")
+
+    p_note = sub.add_parser("note", help="get note detail by note_id + xsec_token")
+    p_note.add_argument("note_id")
+    p_note.add_argument("xsec_token")
+
+    p_comment = sub.add_parser("comment", help="get comments for a note")
+    p_comment.add_argument("note_id")
+    p_comment.add_argument("xsec_token")
+    p_comment.add_argument("-n", "--max-count", type=int, default=50, dest="n")
+
+    p_user = sub.add_parser("user", help="get user profile (and optionally their notes)")
+    p_user.add_argument("user_id")
+    p_user.add_argument("--xsec-token", default="", dest="xsec_token")
+    p_user.add_argument("--notes", action="store_true", help="also fetch user's notes")
+    p_user.add_argument("-n", "--max-count", type=int, default=30, dest="n")
+
+    p_all = sub.add_parser("scrape-all", help="full pipeline: search -> detail -> comments -> feishu")
+    p_all.add_argument("--keyword", "-k", default="")
+    p_all.add_argument("-n", "--max-notes", type=int, default=0, dest="n")
+
     args = parser.parse_args()
 
     if args.command == "check":
@@ -188,6 +300,14 @@ def main() -> int:
         return cmd_login(args.timeout)
     if args.command == "search":
         return cmd_search(args.keyword, args.n)
+    if args.command == "note":
+        return cmd_note(args.note_id, args.xsec_token)
+    if args.command == "comment":
+        return cmd_comment(args.note_id, args.xsec_token, args.n)
+    if args.command == "user":
+        return cmd_user(args.user_id, args.xsec_token, args.notes, args.n)
+    if args.command == "scrape-all":
+        return cmd_scrape_all(args.keyword, args.n)
     parser.print_help()
     return 0
 
