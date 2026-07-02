@@ -13,12 +13,32 @@ from scrapers.keyword import _to_int
 
 FEED_API = "/api/sns/web/v1/feed"
 
+_INTERACT_FROM_DOM_JS = """() => {
+    const result = {};
+    // XHS renders interaction counts in specific span elements
+    const spans = document.querySelectorAll('.interact-container .count, .engage-bar .count, .engage-bar-container .count, [class*="like"] .count, [class*="collect"] .count, [class*="comment"] .count, [class*="chat"] .count');
+    spans.forEach(s => { result[s.className || s.parentElement?.className || ''] = s.textContent?.trim(); });
+    // Also try the more specific selectors used in note detail pages
+    const likeEl = document.querySelector('[class*="like-wrapper"] span, .like-wrapper span.count');
+    const collectEl = document.querySelector('[class*="collect-wrapper"] span, .collect-wrapper span.count');
+    const commentEl = document.querySelector('[class*="chat-wrapper"] span, .chat-wrapper span.count');
+    const shareEl = document.querySelector('[class*="share-wrapper"] span, .share-wrapper span.count');
+    if (likeEl) result._like = likeEl.textContent?.trim();
+    if (collectEl) result._collect = collectEl.textContent?.trim();
+    if (commentEl) result._comment = commentEl.textContent?.trim();
+    if (shareEl) result._share = shareEl.textContent?.trim();
+    return result;
+}"""
+
 _EXTRACT_JS = """(noteId) => {
     const s = window.__INITIAL_STATE__;
     if (!s || !s.note || !s.note.noteDetailMap) return null;
     const entry = s.note.noteDetailMap[noteId];
     if (!entry || !entry.note) return null;
-    return JSON.parse(JSON.stringify(entry.note));
+    const result = JSON.parse(JSON.stringify(entry.note));
+    // SSR may store interact counts at the entry level or with camelCase keys
+    if (entry.interactInfo) result._ssr_interact = JSON.parse(JSON.stringify(entry.interactInfo));
+    return result;
 }"""
 
 
@@ -54,7 +74,10 @@ class NoteScraper:
         try:
             nc = await self.browser.page.evaluate(_EXTRACT_JS, note_id)
             if nc and isinstance(nc, dict):
-                return self._parse(nc, note_id, xsec_token, xsec_source)
+                info = self._parse(nc, note_id, xsec_token, xsec_source)
+                if info.liked_count == 0 and info.comment_count == 0:
+                    info = await self._enrich_from_dom(info)
+                return info
         except Exception:
             pass
 
@@ -71,18 +94,46 @@ class NoteScraper:
 
         return None
 
+    async def _enrich_from_dom(self, info: NoteInfo) -> NoteInfo:
+        try:
+            dom = await self.browser.page.evaluate(_INTERACT_FROM_DOM_JS)
+            if dom and isinstance(dom, dict):
+                if dom.get("_like"):
+                    info.liked_count = _to_int(dom["_like"])
+                if dom.get("_collect"):
+                    info.collected_count = _to_int(dom["_collect"])
+                if dom.get("_comment"):
+                    info.comment_count = _to_int(dom["_comment"])
+                if dom.get("_share"):
+                    info.share_count = _to_int(dom["_share"])
+        except Exception:
+            pass
+        return info
+
     def _parse(
         self, nc: dict, note_id: str, xsec_token: str, xsec_source: str
     ) -> NoteInfo:
         user = nc.get("user", {}) or {}
-        interact = nc.get("interact_info", {}) or {}
+        interact = (
+            nc.get("interact_info")
+            or nc.get("interactInfo")
+            or nc.get("_ssr_interact")
+            or {}
+        )
 
-        # Images
-        image_list = nc.get("image_list") or []
+        # Images — SSR may use imageList (camelCase) or image_list
+        image_list = nc.get("image_list") or nc.get("imageList") or []
         image_urls = []
         for img in image_list:
-            info_list = img.get("info_list") or []
-            url = img.get("url_default") or img.get("url_pre") or ""
+            if isinstance(img, str):
+                if img:
+                    image_urls.append(img)
+                continue
+            info_list = img.get("info_list") or img.get("infoList") or []
+            url = (
+                img.get("url_default") or img.get("urlDefault")
+                or img.get("url_pre") or img.get("urlPre") or ""
+            )
             if not url and info_list:
                 url = info_list[-1].get("url", "")
             if url:
@@ -128,10 +179,10 @@ class NoteScraper:
             desc=nc.get("desc", ""),
             author_nickname=user.get("nick_name") or user.get("nickname", ""),
             author_user_id=user.get("user_id", ""),
-            liked_count=_to_int(interact.get("liked_count")),
-            collected_count=_to_int(interact.get("collected_count")),
-            comment_count=_to_int(interact.get("comment_count")),
-            share_count=_to_int(interact.get("shared_count")),
+            liked_count=_to_int(interact.get("liked_count") or interact.get("likedCount")),
+            collected_count=_to_int(interact.get("collected_count") or interact.get("collectedCount")),
+            comment_count=_to_int(interact.get("comment_count") or interact.get("commentCount")),
+            share_count=_to_int(interact.get("shared_count") or interact.get("sharedCount")),
             create_time=create_time,
             cover_url=cover_url,
             video_url=video_url,

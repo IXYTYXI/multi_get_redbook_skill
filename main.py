@@ -258,6 +258,31 @@ async def _user(user_id: str, xsec_token: str, get_notes: bool, n: int) -> int:
     return 0
 
 
+def cmd_search_user(keyword: str, n: int) -> int:
+    return asyncio.run(_search_user(keyword, n))
+
+
+async def _search_user(keyword: str, n: int) -> int:
+    from core.browser import XhsBrowser
+    from scrapers.user import UserScraper
+
+    try:
+        sys.stdout.reconfigure(errors="replace")
+    except Exception:
+        pass
+
+    async with XhsBrowser() as browser:
+        users = await UserScraper(browser).search_users(keyword, max_count=n)
+
+    print(f"\nkeyword='{keyword}'  got {len(users)} users\n")
+    for i, u in enumerate(users, 1):
+        print(f"{i:>2}. {u.nickname}")
+        print(f"    fans={u.fans} notes={u.note_count}")
+        print(f"    desc: {u.desc[:60]}")
+        print(f"    id={u.user_id}")
+    return 0 if users else 1
+
+
 def cmd_scrape_all(keyword: str, n: int) -> int:
     from scrape_all import main as sa_main
     return asyncio.run(sa_main(keyword, n))
@@ -288,6 +313,10 @@ def main() -> int:
     p_user.add_argument("--notes", action="store_true", help="also fetch user's notes")
     p_user.add_argument("-n", "--max-count", type=int, default=30, dest="n")
 
+    p_suser = sub.add_parser("search-user", help="search for users by keyword")
+    p_suser.add_argument("keyword")
+    p_suser.add_argument("-n", "--max-count", type=int, default=20, dest="n")
+
     p_all = sub.add_parser("scrape-all", help="full pipeline: search -> detail -> comments -> feishu")
     p_all.add_argument("--keyword", "-k", default="")
     p_all.add_argument("-n", "--max-notes", type=int, default=0, dest="n")
@@ -306,6 +335,8 @@ def main() -> int:
         return cmd_comment(args.note_id, args.xsec_token, args.n)
     if args.command == "user":
         return cmd_user(args.user_id, args.xsec_token, args.notes, args.n)
+    if args.command == "search-user":
+        return cmd_search_user(args.keyword, args.n)
     if args.command == "scrape-all":
         return cmd_scrape_all(args.keyword, args.n)
     parser.print_help()

@@ -111,6 +111,9 @@ class FeishuBitable:
             {"field_name": "分享数", "type": 2},
             {"field_name": "发布时间", "type": 1},
             {"field_name": "话题标签", "type": 1},
+            {"field_name": "封面附件", "type": 17},
+            {"field_name": "视频附件", "type": 17},
+            {"field_name": "图片附件", "type": 17},
         ]
         self.add_fields(fields, table_id)
 

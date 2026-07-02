@@ -1,10 +1,12 @@
-"""Author profile + their notes — via browser response interception.
+"""Author profile, user search, and their notes — via browser response interception.
 
 Navigate to the user's profile page; intercept:
   - ``/api/sns/web/v1/user/otherinfo`` for profile data
   - ``/api/sns/web/v1/user_posted`` for their note list (carries xsec_token)
+  - ``/api/sns/web/v1/search/user_info`` for user search results
 """
 import asyncio
+from urllib.parse import quote
 from typing import List, Optional
 
 from models.data import NoteInfo, XhsUserInfo
@@ -13,11 +15,67 @@ from config.settings import REQUEST_DELAY
 
 USER_INFO_API = "/api/sns/web/v1/user/otherinfo"
 USER_POSTED_API = "/api/sns/web/v1/user_posted"
+USER_SEARCH_API = "/api/sns/web/v1/search/user_info"
 
 
 class UserScraper:
     def __init__(self, browser):
         self.browser = browser
+
+    async def search_users(
+        self, keyword: str, max_count: int = 20, max_scrolls: int = 8
+    ) -> List[XhsUserInfo]:
+        captured = []
+
+        async def on_response(resp):
+            if USER_SEARCH_API in resp.url:
+                try:
+                    captured.append(await resp.json())
+                except Exception:
+                    pass
+
+        self.browser.context.on("response", on_response)
+
+        url = (
+            f"https://www.xiaohongshu.com/search_result"
+            f"?keyword={quote(keyword)}&source=web_search_result_page&type=user"
+        )
+        await self.browser.navigate(url)
+
+        seen, users = set(), []
+        for _ in range(max_scrolls):
+            await asyncio.sleep(2)
+            batch, captured[:] = list(captured), []
+            for r in batch:
+                if not isinstance(r, dict):
+                    continue
+                for it in (r.get("data") or {}).get("users", []):
+                    uid = it.get("user_id") or it.get("id", "")
+                    if not uid or uid in seen:
+                        continue
+                    seen.add(uid)
+                    users.append(self._parse_search_user(it))
+            if len(users) >= max_count:
+                break
+            try:
+                await self.browser.page.mouse.wheel(0, 2500)
+            except Exception:
+                pass
+
+        return users[:max_count]
+
+    def _parse_search_user(self, it: dict) -> XhsUserInfo:
+        uid = it.get("user_id") or it.get("id", "")
+        return XhsUserInfo(
+            user_id=uid,
+            xsec_token=it.get("xsec_token", ""),
+            nickname=it.get("nickname") or it.get("nick_name", ""),
+            desc=it.get("desc", ""),
+            fans=_to_int(it.get("fans") or it.get("fansCount")),
+            note_count=_to_int(it.get("note_count") or it.get("noteCount")),
+            avatar_url=it.get("image") or it.get("imageb", ""),
+            homepage_url=f"https://www.xiaohongshu.com/user/profile/{uid}",
+        )
 
     async def get_user(
         self,

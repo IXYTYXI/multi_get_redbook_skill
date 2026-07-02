@@ -33,6 +33,7 @@ MAX_NOTES = int(os.environ.get("MAX_NOTES", "20"))
 MAX_COMMENTS_PER_NOTE = int(os.environ.get("MAX_COMMENTS_PER_NOTE", "50"))
 SKIP_COMMENTS = os.environ.get("SKIP_COMMENTS", "").lower() in ("1", "true", "yes")
 SKIP_DETAIL = os.environ.get("SKIP_DETAIL", "").lower() in ("1", "true", "yes")
+SKIP_MEDIA = os.environ.get("SKIP_MEDIA", "").lower() in ("1", "true", "yes")
 
 
 async def main(keyword: str = "", max_notes: int = 0):
@@ -102,7 +103,7 @@ async def main(keyword: str = "", max_notes: int = 0):
         else:
             print("\n=== Step 3: Skipped (SKIP_COMMENTS set) ===")
 
-    # Step 4: Write to Feishu
+    # Step 4: Download media + upload to Feishu
     print(f"\n=== Step 4: Write to Feishu ===")
     if not APP_TOKEN:
         print("  FEISHU_APP_TOKEN not set — writing to local summary instead.")
@@ -111,11 +112,51 @@ async def main(keyword: str = "", max_notes: int = 0):
 
     feishu = FeishuBitable(app_token=APP_TOKEN)
 
+    # Download and upload media if not skipped
+    note_media_tokens = {}
+    if not SKIP_MEDIA and NOTE_TABLE_ID:
+        print(f"\n  --- Downloading & uploading media for {len(notes)} notes ---")
+        for i, note in enumerate(notes):
+            has_media = note.image_urls or note.video_url or note.cover_url
+            if not has_media:
+                continue
+            print(f"  [{i+1}/{len(notes)}] {note.note_id} downloading media...")
+            paths = download_note_media(note)
+            tokens = {"cover": "", "video": "", "images": []}
+            if paths["cover"]:
+                ft = feishu.upload_file(paths["cover"])
+                if ft:
+                    tokens["cover"] = ft
+                    print(f"    → cover uploaded")
+            if paths["video"]:
+                ft = feishu.upload_file(paths["video"])
+                if ft:
+                    tokens["video"] = ft
+                    print(f"    → video uploaded")
+            for img_path in paths.get("images", []):
+                ft = feishu.upload_file(img_path)
+                if ft:
+                    tokens["images"].append(ft)
+            if tokens["images"]:
+                print(f"    → {len(tokens['images'])} images uploaded")
+            note_media_tokens[note.note_id] = tokens
+        cleanup_downloads()
+        print(f"  Media done: {len(note_media_tokens)} notes with media")
+    elif SKIP_MEDIA:
+        print("  Media download skipped (SKIP_MEDIA set)")
+
     if NOTE_TABLE_ID:
         note_records = [note_to_feishu_record(n) for n in notes]
-        for r in note_records:
+        for j, r in enumerate(note_records):
             r["搜索关键词"] = kw
             r["爬取时间"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            mt = note_media_tokens.get(notes[j].note_id, {})
+            if mt.get("cover"):
+                r["封面附件"] = [{"file_token": mt["cover"]}]
+            if mt.get("video"):
+                r["视频附件"] = [{"file_token": mt["video"]}]
+            if mt.get("images"):
+                r["图片附件"] = [{"file_token": ft} for ft in mt["images"]]
         written = feishu.write_records(note_records, NOTE_TABLE_ID)
         print(f"  Written {written}/{len(note_records)} note records")
     else:
