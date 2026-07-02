@@ -27,6 +27,7 @@ XHS_COOKIE = os.getenv("XHS_COOKIE", "")
 XHS_KEYWORD = os.getenv("XHS_KEYWORD", "")
 
 PROXY_URL = os.getenv("PROXY_URL", "")
+HEADLESS = os.getenv("XHS_HEADLESS", "false").lower() in ("1", "true", "yes")
 MAX_PAGES = int(os.getenv("MAX_PAGES", "10"))
 # XHS risk-control is stricter than Douyin; default to a slower cadence.
 REQUEST_DELAY = float(os.getenv("REQUEST_DELAY", "3"))

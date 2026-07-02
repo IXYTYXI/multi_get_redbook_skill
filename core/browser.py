@@ -13,10 +13,12 @@ import json
 from pathlib import Path
 from typing import Optional
 
-from config.settings import XHS_BASE_URL, XHS_COOKIE, PROXY_URL
+from config.settings import XHS_BASE_URL, XHS_COOKIE, PROXY_URL, HEADLESS
 
 # Skill-root cookies file (a Playwright cookie array), written by `main.py login`.
-COOKIE_FILE = Path(__file__).resolve().parent.parent / "cookies.json"
+_SKILL_ROOT = Path(__file__).resolve().parent.parent
+COOKIE_FILE = _SKILL_ROOT / "cookies.json"
+XHS_COOKIE_FILE = _SKILL_ROOT / "xhs-cookies.json"
 
 STEALTH_JS = """
 Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
@@ -46,9 +48,11 @@ class XhsBrowser:
         self._context = None
         self._page = None
 
-    async def start(self, headless: bool = True):
+    async def start(self, headless: bool = None):
         from playwright.async_api import async_playwright  # lazy
 
+        if headless is None:
+            headless = HEADLESS
         self._playwright = await async_playwright().start()
         launch_args = {
             "headless": headless,
@@ -80,16 +84,14 @@ class XhsBrowser:
                 loaded = True
             except Exception as e:
                 print(f"[Browser] Failed to load cookies.json: {e}")
-        if not loaded:
-            alt = COOKIE_FILE.parent / "xhs-cookies.json"
-            if alt.exists():
-                try:
-                    s = json.load(open(alt, encoding="utf-8")).get("XHS_COOKIE", "")
-                    if s:
-                        await self._context.add_cookies(_cookie_string_to_list(s))
-                        loaded = True
-                except Exception as e:
-                    print(f"[Browser] Failed to load xhs-cookies.json: {e}")
+        if not loaded and XHS_COOKIE_FILE.exists():
+            try:
+                s = json.load(open(XHS_COOKIE_FILE, encoding="utf-8")).get("XHS_COOKIE", "")
+                if s:
+                    await self._context.add_cookies(_cookie_string_to_list(s))
+                    loaded = True
+            except Exception as e:
+                print(f"[Browser] Failed to load xhs-cookies.json: {e}")
         if not loaded and self._cookie:
             await self._context.add_cookies(_cookie_string_to_list(self._cookie))
 
