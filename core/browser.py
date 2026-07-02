@@ -10,10 +10,13 @@ browser to be installed.
 """
 import asyncio
 import json
+import time
 from pathlib import Path
 from typing import Optional
 
 from config.settings import XHS_BASE_URL, XHS_COOKIE, PROXY_URL, HEADLESS
+
+LOGIN_TIMEOUT = int(__import__("os").environ.get("XHS_LOGIN_TIMEOUT", "300"))
 
 # Skill-root cookies file (a Playwright cookie array), written by `main.py login`.
 _SKILL_ROOT = Path(__file__).resolve().parent.parent
@@ -96,6 +99,43 @@ class XhsBrowser:
             await self._context.add_cookies(_cookie_string_to_list(self._cookie))
 
         self._page = await self._context.new_page()
+        self._logged_in = False
+
+    async def ensure_login(self, timeout: int = 0):
+        """Navigate to XHS and verify login; if not logged in, wait for the
+        user to log in through the browser window (headed mode only).
+
+        Called automatically by ``__aenter__``; can also be called manually.
+        """
+        timeout = timeout or LOGIN_TIMEOUT
+        await self.navigate("https://www.xiaohongshu.com")
+
+        if await self._check_logged_in():
+            self._logged_in = True
+            await self.save_cookies()
+            return True
+
+        print("[Browser] Not logged in. Opening login page...")
+        print(f"[Browser] Please log in via the browser window (timeout: {timeout}s)")
+        await self.navigate("https://www.xiaohongshu.com")
+
+        start = time.time()
+        while time.time() - start < timeout:
+            await asyncio.sleep(5)
+            if await self._check_logged_in():
+                self._logged_in = True
+                await self.save_cookies()
+                print("[Browser] Login detected! Cookies saved.")
+                return True
+
+        print("[Browser] Login timeout — continuing without login (some APIs may fail)")
+        return False
+
+    async def _check_logged_in(self) -> bool:
+        cookies = await self._context.cookies()
+        by_name = {c["name"]: c["value"] for c in cookies}
+        ws = by_name.get("web_session", "")
+        return len(ws) > 80
 
     @property
     def context(self):
@@ -151,6 +191,7 @@ class XhsBrowser:
 
     async def __aenter__(self):
         await self.start()
+        await self.ensure_login()
         return self
 
     async def __aexit__(self, *args):

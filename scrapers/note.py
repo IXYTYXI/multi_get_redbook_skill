@@ -1,8 +1,8 @@
-"""Note detail — implemented via browser response interception.
+"""Note detail — extract from page's __INITIAL_STATE__ or API interception.
 
-Navigate to the note's explore page with xsec_token; the page's own JS calls
-``/api/sns/web/v1/feed`` (POST). We intercept that response to get full detail
-(desc, images, video, tags, create_time) without reimplementing the signature.
+XHS now server-side renders note detail into ``__INITIAL_STATE__`` (no
+``/feed`` API call). We read it via ``page.evaluate()`` after navigating.
+Falls back to ``/api/sns/web/v1/feed`` interception for older page versions.
 """
 import asyncio
 import time
@@ -12,6 +12,14 @@ from models.data import NoteInfo
 from scrapers.keyword import _to_int
 
 FEED_API = "/api/sns/web/v1/feed"
+
+_EXTRACT_JS = """(noteId) => {
+    const s = window.__INITIAL_STATE__;
+    if (!s || !s.note || !s.note.noteDetailMap) return null;
+    const entry = s.note.noteDetailMap[noteId];
+    if (!entry || !entry.note) return null;
+    return JSON.parse(JSON.stringify(entry.note));
+}"""
 
 
 class NoteScraper:
@@ -42,6 +50,15 @@ class NoteScraper:
         await self.browser.navigate(url)
         await asyncio.sleep(3)
 
+        # Primary: extract from __INITIAL_STATE__ (SSR)
+        try:
+            nc = await self.browser.page.evaluate(_EXTRACT_JS, note_id)
+            if nc and isinstance(nc, dict):
+                return self._parse(nc, note_id, xsec_token, xsec_source)
+        except Exception:
+            pass
+
+        # Fallback: intercept /feed API response
         for r in captured:
             if not isinstance(r, dict):
                 continue
