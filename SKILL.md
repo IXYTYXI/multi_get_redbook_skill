@@ -1,85 +1,79 @@
 ---
 name: xhs-scraper
-description: "Use when the user asks to scrape Xiaohongshu (小红书 / RED) data - note keyword search, author profile, note details, or comments - and write results to Feishu bitable. WIP: scaffold + reused storage/date-filter are done; signing core (Stage 1) and scrapers (Stage 2) are login-gated stubs."
+description: "Use when the user asks to scrape Xiaohongshu (小红书 / RED) data - keyword search, author profile, note details, comments, user search - and write results to Feishu bitable. Supports media download (images/video) and upload to Feishu attachment fields."
 user-invocable: true
 ---
 
-# Xiaohongshu (小红书) Scraper — WIP
+# Xiaohongshu (小红书) Scraper
 
-Self-built skill to scrape Xiaohongshu data (note search / author profile / note detail / comments) and write to Feishu bitable. Independent implementation — **does not** reuse the third-party MediaCrawler fork's code.
+Scrape Xiaohongshu data (note search / user search / note detail / comments / author profile) and write to Feishu bitable. Uses browser response interception — no signature reimplementation needed, resilient to XHS algorithm updates.
 
-## Status
+## Commands
 
-| Stage | Scope | State |
+```bash
+python main.py check                        # offline smoke test
+python main.py login                        # QR code login (saves cookies)
+python main.py search <keyword> -n 20       # note keyword search
+python main.py search-user <keyword> -n 20  # user search
+python main.py note <id> <xsec_token>       # note detail
+python main.py comment <id> <xsec_token>    # note comments
+python main.py user <id> [--notes]          # author profile + notes
+python main.py scrape-all -k <keyword>      # full pipeline → Feishu
+```
+
+## Full Pipeline (`scrape-all`)
+
+Runs all steps in sequence:
+1. **Search** — keyword search, get note list with `xsec_token`
+2. **Detail** — SSR extraction from `__INITIAL_STATE__` + DOM fallback for interaction data
+3. **Comments** — browser interception + cursor paging
+4. **Media** — download images/video, upload to Feishu as attachments
+5. **Write** — batch write notes + comments to Feishu bitable
+
+### Environment Variables
+
+| Variable | Required | Description |
 |---|---|---|
-| 0 | Scaffold, reused storage / downloader / date-filter, data models | ✅ done |
-| 1 | Session via `login`/cookies; **search verified live** (real notes + `xsec_token`) | ✅ done |
-| 2 | Note search implemented (response interception); note/comment/user | 🚧 search done, rest stub |
-| 3 | Feishu storage wiring, media, `scrape_all` orchestration | ⏳ TODO |
-| 4 | Docs, `.env.example`, known limits | ⏳ TODO |
+| `XHS_KEYWORD` | for `scrape-all` | Default search keyword |
+| `MAX_NOTES` | no (default 20) | Max notes to fetch |
+| `MAX_COMMENTS_PER_NOTE` | no (default 50) | Max comments per note |
+| `SKIP_DETAIL` | no | Set `true` to skip note detail step |
+| `SKIP_COMMENTS` | no | Set `true` to skip comments step |
+| `SKIP_MEDIA` | no | Set `true` to skip media download/upload |
+| `FEISHU_APP_ID` | for Feishu | Feishu app ID |
+| `FEISHU_APP_SECRET` | for Feishu | Feishu app secret |
+| `FEISHU_APP_TOKEN` | for Feishu | Feishu bitable app token |
+| `NOTE_TABLE_ID` | for Feishu | Note table ID |
+| `COMMENT_TABLE_ID` | for Feishu | Comment table ID |
+| `REQUEST_DELAY` | no (default 3) | Seconds between requests |
 
-## Prerequisites
+## Login
 
-### 1. Xiaohongshu login session (Stage 1+)
+XHS requires a logged-in session. Run `python main.py login` — a browser window opens for QR code or phone login. Cookies auto-save to `cookies.json` and `.env`.
 
-Signing requires a logged-in browser session. Two ways to provide it (same as
-douyin-scraper):
+If the session expires during scraping, the auto-login flow (`ensure_login`) opens a browser window for re-authentication.
 
-**A. `login` command (recommended on a desktop runtime).** Run:
+**Never paste cookies in issue comments.** Use `.env` or Multica agent `custom_env`.
 
-```bash
-python main.py login
-```
-
-A visible browser opens; log into `xiaohongshu.com` (QR or phone). Once login is
-detected it auto-saves the session to **`cookies.json`** (a Playwright cookie array)
-in the skill root and mirrors the cookie string to `.env` as `XHS_COOKIE`. Scraping
-then loads `cookies.json` automatically. `cookies.json` / `.env` are git-ignored.
-
-**B. `XHS_COOKIE` env var.** If you already have the full cookie string (key fields
-`a1`, `web_session`), set it as `XHS_COOKIE` (e.g. the agent's custom_env). Used only
-when no `cookies.json` is present.
-
-- **Never paste the cookie in issue comments.** Use a throwaway account.
-
-### 2. Feishu app credentials
-
-`.env` (or env) needs `FEISHU_APP_ID`, `FEISHU_APP_SECRET`, `FEISHU_APP_TOKEN` and the
-target table ids. See `.env.example`.
-
-### 3. Playwright
-
-`pip install -r requirements.txt && playwright install chromium`
-
-## Architecture (mirrors douyin-scraper, adapted for XHS)
+## Architecture
 
 ```
-config/settings.py     env + endpoints
-core/sign.py           x-s / x-t / x-s-common (browser-injection; Stage 1)
-core/browser.py        Playwright logged-in context + in-page fetch
-core/datefilter.py     client-side date-window filter (reused)
-models/data.py         NoteInfo / XhsUserInfo / CommentInfo
-scrapers/keyword.py    note search — response interception  [done]
-scrapers/note.py       note detail (token passthrough)    [stub]
-scrapers/comment.py    comments (cursor paging)           [stub]
-scrapers/user.py       author profile                     [stub]
-storage/feishu.py      Feishu bitable writer (reused)
-storage/downloader.py  media download (reused)
+config/settings.py      env + endpoints
+core/browser.py         Playwright context + auto-login + in-page fetch
+core/datefilter.py      client-side date-window filter
+models/data.py          NoteInfo / XhsUserInfo / CommentInfo
+scrapers/keyword.py     note search (response interception)
+scrapers/note.py        note detail (SSR + API fallback + DOM enrichment)
+scrapers/comment.py     comments (interception + cursor API + sub-comments)
+scrapers/user.py        user profile + user search + user notes
+storage/feishu.py       Feishu bitable writer + file upload
+storage/downloader.py   media download
+scrape_all.py           full pipeline orchestrator
 ```
 
-## Key design notes (vs douyin-scraper)
+## Key Design Notes
 
-- **Signing is mandatory on all endpoints** — no cookie-only fast path. We compute the
-  obfuscated core value inside a logged-in page (`page.evaluate`) and assemble the header
-  envelope in Python. Independent implementation; the fork is a validated reference only.
-- **`xsec_token` passthrough** — list/search responses carry a per-note `xsec_token`
-  (+ `xsec_source`); it must be threaded into note-detail and comment requests. A bare
-  `note_id` cannot be resolved (risk-control error 300017).
-
-## Smoke test
-
-```bash
-python main.py check
-```
-Runs offline: builds the models, exercises the date filter, imports every module. No
-network or login required.
+- **Browser response interception** — captures XHS's own signed API responses; no signature reimplementation. More stable than pure algorithm signing (e.g. MediaCrawler's xhshow approach).
+- **`xsec_token` passthrough** — every note carries a per-note `xsec_token` from search results; it must be passed to detail/comment requests.
+- **SSR + DOM fallback** — note detail extracts from `window.__INITIAL_STATE__`; when interaction counts are missing, falls back to DOM scraping.
+- **Media pipeline** — downloads cover/images/video, uploads to Feishu via Drive API, writes file_tokens as attachment fields (type 17).
