@@ -36,9 +36,10 @@ Runs all steps in sequence:
 |---|---|---|
 | `XHS_KEYWORD` | for `scrape-all` | Default search keyword |
 | `MAX_NOTES` | no (default 20) | Max notes to fetch |
-| `MAX_COMMENTS_PER_NOTE` | no (default 50) | Max comments per note |
+| `MAX_COMMENTS_PER_NOTE` | no (default 50) | Max first-level comments per note |
+| `MAX_SUB_COMMENTS_PER` | no (default 20) | Max sub-comments (replies) per first-level comment |
 | `SKIP_DETAIL` | no | Set `true` to skip note detail step |
-| `SKIP_COMMENTS` | no | Set `true` to skip comments step |
+| `SKIP_COMMENTS` | no | Set `true` to skip comments step (also skips comment table creation) |
 | `SKIP_MEDIA` | no | Set `true` to skip media download/upload |
 | `FEISHU_APP_ID` | for Feishu | Feishu app ID |
 | `FEISHU_APP_SECRET` | for Feishu | Feishu app secret |

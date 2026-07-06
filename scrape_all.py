@@ -31,6 +31,7 @@ APP_TOKEN = os.environ.get("FEISHU_APP_TOKEN", "")
 KEYWORD = os.environ.get("XHS_KEYWORD", "")
 MAX_NOTES = int(os.environ.get("MAX_NOTES", "20"))
 MAX_COMMENTS_PER_NOTE = int(os.environ.get("MAX_COMMENTS_PER_NOTE", "50"))
+MAX_SUB_COMMENTS_PER = int(os.environ.get("MAX_SUB_COMMENTS_PER", "20"))
 SKIP_COMMENTS = os.environ.get("SKIP_COMMENTS", "").lower() in ("1", "true", "yes")
 SKIP_DETAIL = os.environ.get("SKIP_DETAIL", "").lower() in ("1", "true", "yes")
 SKIP_MEDIA = os.environ.get("SKIP_MEDIA", "").lower() in ("1", "true", "yes")
@@ -78,7 +79,7 @@ async def main(keyword: str = "", max_notes: int = 0):
         else:
             print("\n=== Step 2: Skipped (SKIP_DETAIL set) ===")
 
-        # Step 3: Get comments
+        # Step 3: Get comments + sub-comments
         all_comments = []
         if not SKIP_COMMENTS:
             print(f"\n=== Step 3: Get comments for {len(notes)} notes ===")
@@ -97,7 +98,18 @@ async def main(keyword: str = "", max_notes: int = 0):
                     xsec_source=note.xsec_source,
                 )
                 all_comments.extend(comments)
-                print(f"    → got {len(comments)} comments")
+                sub_total = 0
+                for c in comments:
+                    if c.sub_comment_count > 0:
+                        subs = await cs.get_sub_comments(
+                            note.note_id, c.comment_id,
+                            max_count=MAX_SUB_COMMENTS_PER,
+                            xsec_token=note.xsec_token,
+                        )
+                        all_comments.extend(subs)
+                        sub_total += len(subs)
+                        await asyncio.sleep(REQUEST_DELAY)
+                print(f"    → got {len(comments)} comments + {sub_total} sub-comments")
                 await asyncio.sleep(REQUEST_DELAY)
             print(f"  Total comments: {len(all_comments)}")
         else:
@@ -113,7 +125,9 @@ async def main(keyword: str = "", max_notes: int = 0):
     feishu = FeishuBitable(app_token=APP_TOKEN)
 
     note_tid = feishu.ensure_table(NOTE_TABLE_ID, "小红书笔记", feishu.setup_note_table)
-    comment_tid = feishu.ensure_table(COMMENT_TABLE_ID, "小红书评论", feishu.setup_comment_table)
+    comment_tid = ""
+    if not SKIP_COMMENTS and all_comments:
+        comment_tid = feishu.ensure_table(COMMENT_TABLE_ID, "小红书评论", feishu.setup_comment_table)
 
     # Download and upload media if not skipped
     note_media_tokens = {}

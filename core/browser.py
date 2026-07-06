@@ -191,7 +191,11 @@ class XhsBrowser:
 
     async def __aenter__(self):
         await self.start()
-        await self.ensure_login()
+        if not await self.ensure_login():
+            await self.close()
+            raise RuntimeError(
+                "XHS login failed or timed out. Run 'python main.py login' first."
+            )
         return self
 
     async def __aexit__(self, *args):

@@ -83,18 +83,35 @@ class FeishuBitable:
 
     def ensure_table(self, table_id: str, name: str, setup_fn) -> str:
         if table_id:
+            setup_fn(table_id)
             return table_id
         existing = self.find_table_by_name(name)
         if existing:
             print(f"[Feishu] Reusing existing table '{name}' ({existing})")
+            setup_fn(existing)
             return existing
         tid = self.create_table(name)
         setup_fn(tid)
         return tid
 
+    def list_fields(self, table_id: str = "") -> List[str]:
+        tid = table_id or self.table_id
+        url = f"{FEISHU_API_BASE}/bitable/v1/apps/{self.app_token}/tables/{tid}/fields"
+        resp = self._client.get(url, headers=self._headers())
+        data = resp.json()
+        if data.get("code") != 0:
+            return []
+        items = data.get("data", {}).get("items", [])
+        return [f.get("field_name", "") for f in items]
+
     def add_fields(self, fields: List[dict], table_id: str = "") -> None:
         tid = table_id or self.table_id
-        for f in fields:
+        existing = set(self.list_fields(tid))
+        missing = [f for f in fields if f.get("field_name") not in existing]
+        if not missing:
+            return
+        print(f"[Feishu] Adding {len(missing)} missing field(s) to table {tid}")
+        for f in missing:
             url = f"{FEISHU_API_BASE}/bitable/v1/apps/{self.app_token}/tables/{tid}/fields"
             resp = self._client.post(url, headers=self._headers(), json=f)
             data = resp.json()

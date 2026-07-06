@@ -17,14 +17,22 @@ python main.py check        # -> "xhs-scraper scaffold OK"
 
 ## Status
 
-- ✅ Stage 0 — scaffold, reused storage/downloader/date-filter, data models
-- ⏳ Stage 1 — browser-injection signing (`core/sign.py`), login-gated (`XHS_COOKIE`)
-- ⏳ Stage 2 — scrapers (search / note / comment / user) with `xsec_token` passthrough
-- ⏳ Stage 3 — Feishu wiring, media, orchestration
-- ⏳ Stage 4 — docs / known limits
+All core features are implemented and working:
+
+- ✅ Scaffold, data models, date filter, storage/downloader
+- ✅ Browser response interception (no signature reimplementation needed)
+- ✅ Login flow (`python main.py login`) with cookie persistence
+- ✅ Scrapers: keyword search, note detail (SSR + DOM fallback), comments + sub-comments, user profile + user search
+- ✅ `xsec_token` passthrough across all scraper calls
+- ✅ Feishu bitable: auto-create/reuse tables, field sync on existing tables, media upload as attachments
+- ✅ Full pipeline (`scrape-all`): search → detail → comments → media → Feishu
+- ✅ Login fail-fast (raises immediately if session is missing)
+
+See `SKILL.md` for full command reference and environment variables.
 
 ## Login session
 
-Signing needs a logged-in session. Provide the full cookie string via `XHS_COOKIE`,
-injected through the Multica agent's custom_env (`multica agent env set`), never via a
-workdir file or issue comment.
+XHS requires a logged-in session. Run `python main.py login` to open a browser for QR code
+or phone login. Cookies auto-save to `cookies.json` and `.env`. Alternatively, provide the
+full cookie string via `XHS_COOKIE` in the agent's custom_env — never via workdir files or
+issue comments.
