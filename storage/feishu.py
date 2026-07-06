@@ -124,7 +124,9 @@ class FeishuBitable:
 
     def setup_note_table(self, table_id: str = "") -> None:
         fields = [
+            {"field_name": "笔记ID", "type": 1},
             {"field_name": "作者", "type": 1},
+            {"field_name": "作者ID", "type": 1},
             {"field_name": "标题", "type": 1},
             {"field_name": "正文", "type": 1},
             {"field_name": "笔记链接", "type": 15},
@@ -138,6 +140,8 @@ class FeishuBitable:
             {"field_name": "分享数", "type": 2},
             {"field_name": "发布时间", "type": 1},
             {"field_name": "话题标签", "type": 1},
+            {"field_name": "搜索关键词", "type": 1},
+            {"field_name": "爬取时间", "type": 1},
             {"field_name": "封面附件", "type": 17},
             {"field_name": "视频附件", "type": 17},
             {"field_name": "图片附件", "type": 17},
@@ -170,6 +174,8 @@ class FeishuBitable:
             {"field_name": "点赞数", "type": 2},
             {"field_name": "回复数", "type": 2},
             {"field_name": "发布时间", "type": 1},
+            {"field_name": "搜索关键词", "type": 1},
+            {"field_name": "爬取时间", "type": 1},
         ]
         self.add_fields(fields, table_id)
 
@@ -263,7 +269,9 @@ class FeishuBitable:
 
 def note_to_feishu_record(note) -> dict:
     return {
+        "笔记ID": note.note_id,
         "作者": note.author_nickname,
+        "作者ID": note.author_user_id,
         "标题": note.title,
         "正文": note.desc,
         "笔记链接": {"link": note.note_url, "text": "查看笔记"} if note.note_url else "",
