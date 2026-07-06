@@ -26,9 +26,9 @@ python main.py scrape-all -k <keyword>      # full pipeline → Feishu
 Runs all steps in sequence:
 1. **Search** — keyword search, get note list with `xsec_token`
 2. **Detail** — SSR extraction from `__INITIAL_STATE__` + DOM fallback for interaction data
-3. **Comments** — browser interception + cursor paging
+3. **Comments** — browser interception + cursor paging (with parent comment tracking)
 4. **Media** — download images/video, upload to Feishu as attachments
-5. **Write** — batch write notes + comments to Feishu bitable
+5. **Write** — batch write notes + comments to Feishu bitable (auto-creates tables if TABLE_ID not set)
 
 ### Environment Variables
 
@@ -43,8 +43,8 @@ Runs all steps in sequence:
 | `FEISHU_APP_ID` | for Feishu | Feishu app ID |
 | `FEISHU_APP_SECRET` | for Feishu | Feishu app secret |
 | `FEISHU_APP_TOKEN` | for Feishu | Feishu bitable app token |
-| `NOTE_TABLE_ID` | for Feishu | Note table ID |
-| `COMMENT_TABLE_ID` | for Feishu | Comment table ID |
+| `NOTE_TABLE_ID` | no | Note table ID (auto-created if empty) |
+| `COMMENT_TABLE_ID` | no | Comment table ID (auto-created if empty) |
 | `REQUEST_DELAY` | no (default 3) | Seconds between requests |
 
 ## Login
@@ -76,4 +76,6 @@ scrape_all.py           full pipeline orchestrator
 - **Browser response interception** — captures XHS's own signed API responses; no signature reimplementation. More stable than pure algorithm signing (e.g. MediaCrawler's xhshow approach).
 - **`xsec_token` passthrough** — every note carries a per-note `xsec_token` from search results; it must be passed to detail/comment requests.
 - **SSR + DOM fallback** — note detail extracts from `window.__INITIAL_STATE__`; when interaction counts are missing, falls back to DOM scraping.
+- **Comment thread tracking** — comments carry `parent_comment_id`, `reply_to_user_id`, and `reply_to_nickname` for full reply-chain traceability.
+- **Auto-create tables** — when `NOTE_TABLE_ID` or `COMMENT_TABLE_ID` are not set, `scrape_all` auto-creates Feishu tables with proper field schemas. Set the IDs to reuse existing tables.
 - **Media pipeline** — downloads cover/images/video, uploads to Feishu via Drive API, writes file_tokens as attachment fields (type 17).

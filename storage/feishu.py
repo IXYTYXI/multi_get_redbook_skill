@@ -134,6 +134,9 @@ class FeishuBitable:
         fields = [
             {"field_name": "评论ID", "type": 1},
             {"field_name": "笔记ID", "type": 1},
+            {"field_name": "父评论ID", "type": 1},
+            {"field_name": "回复对象ID", "type": 1},
+            {"field_name": "回复对象昵称", "type": 1},
             {"field_name": "评论内容", "type": 1},
             {"field_name": "用户昵称", "type": 1},
             {"field_name": "用户ID", "type": 1},
@@ -267,6 +270,9 @@ def comment_to_feishu_record(comment) -> dict:
     return {
         "评论ID": comment.comment_id,
         "笔记ID": comment.note_id,
+        "父评论ID": comment.parent_comment_id,
+        "回复对象ID": comment.reply_to_user_id,
+        "回复对象昵称": comment.reply_to_nickname,
         "评论内容": comment.content,
         "用户昵称": comment.user_nickname,
         "用户ID": comment.user_id,

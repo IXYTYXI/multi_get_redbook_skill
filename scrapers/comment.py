@@ -182,9 +182,15 @@ class CommentScraper:
         else:
             create_time = str(ct) if ct else ""
 
+        target_comment = c.get("target_comment") or {}
+        reply_to = target_comment.get("user_info") or {}
+
         return CommentInfo(
             comment_id=c.get("id", ""),
             note_id=note_id,
+            parent_comment_id=target_comment.get("id", ""),
+            reply_to_user_id=reply_to.get("user_id", ""),
+            reply_to_nickname=reply_to.get("nickname", ""),
             content=c.get("content", ""),
             user_nickname=user.get("nickname", ""),
             user_id=user.get("user_id", ""),
