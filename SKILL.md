@@ -26,9 +26,9 @@ python main.py scrape-all -k <keyword>      # full pipeline → Feishu
 Runs all steps in sequence:
 1. **Search** — keyword search, get note list with `xsec_token`
 2. **Detail** — SSR extraction from `__INITIAL_STATE__` + DOM fallback for interaction data
-3. **Comments** — browser interception + cursor paging (with parent comment tracking)
+3. **Comments** — browser interception + cursor paging (with parent/reply tracking)
 4. **Media** — download images/video, upload to Feishu as attachments
-5. **Write** — batch write notes + comments to Feishu bitable (auto-creates tables if TABLE_ID not set)
+5. **Write** — batch write notes + comments to Feishu bitable
 
 ### Environment Variables
 
@@ -43,8 +43,8 @@ Runs all steps in sequence:
 | `FEISHU_APP_ID` | for Feishu | Feishu app ID |
 | `FEISHU_APP_SECRET` | for Feishu | Feishu app secret |
 | `FEISHU_APP_TOKEN` | for Feishu | Feishu bitable app token |
-| `NOTE_TABLE_ID` | no | Note table ID (auto-created if empty) |
-| `COMMENT_TABLE_ID` | no | Comment table ID (auto-created if empty) |
+| `NOTE_TABLE_ID` | no | Note table ID (auto-created if empty, reuses existing by name) |
+| `COMMENT_TABLE_ID` | no | Comment table ID (auto-created if empty, reuses existing by name) |
 | `REQUEST_DELAY` | no (default 3) | Seconds between requests |
 
 ## Login
@@ -61,12 +61,12 @@ If the session expires during scraping, the auto-login flow (`ensure_login`) ope
 config/settings.py      env + endpoints
 core/browser.py         Playwright context + auto-login + in-page fetch
 core/datefilter.py      client-side date-window filter
-models/data.py          NoteInfo / XhsUserInfo / CommentInfo
+models/data.py          NoteInfo / XhsUserInfo / CommentInfo (with parent/reply fields)
 scrapers/keyword.py     note search (response interception)
 scrapers/note.py        note detail (SSR + API fallback + DOM enrichment)
 scrapers/comment.py     comments (interception + cursor API + sub-comments)
 scrapers/user.py        user profile + user search + user notes
-storage/feishu.py       Feishu bitable writer + file upload
+storage/feishu.py       Feishu bitable writer + file upload + auto-create/reuse tables
 storage/downloader.py   media download
 scrape_all.py           full pipeline orchestrator
 ```
@@ -76,6 +76,6 @@ scrape_all.py           full pipeline orchestrator
 - **Browser response interception** — captures XHS's own signed API responses; no signature reimplementation. More stable than pure algorithm signing (e.g. MediaCrawler's xhshow approach).
 - **`xsec_token` passthrough** — every note carries a per-note `xsec_token` from search results; it must be passed to detail/comment requests.
 - **SSR + DOM fallback** — note detail extracts from `window.__INITIAL_STATE__`; when interaction counts are missing, falls back to DOM scraping.
-- **Comment thread tracking** — comments carry `parent_comment_id`, `reply_to_user_id`, and `reply_to_nickname` for full reply-chain traceability.
-- **Auto-create tables** — when `NOTE_TABLE_ID` or `COMMENT_TABLE_ID` are not set, `scrape_all` auto-creates Feishu tables with proper field schemas. Set the IDs to reuse existing tables.
+- **Auto-create / reuse tables** — if `NOTE_TABLE_ID` or `COMMENT_TABLE_ID` are not set, automatically finds an existing table by name or creates a new one with the correct schema. Set table IDs to reuse specific existing tables.
+- **Comment threading** — `CommentInfo` carries `parent_comment_id`, `reply_to_nickname`, and `reply_to_user_id` to track reply relationships in both first-level and sub-comments.
 - **Media pipeline** — downloads cover/images/video, uploads to Feishu via Drive API, writes file_tokens as attachment fields (type 17).

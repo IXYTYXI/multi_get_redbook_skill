@@ -112,31 +112,12 @@ async def main(keyword: str = "", max_notes: int = 0):
 
     feishu = FeishuBitable(app_token=APP_TOKEN)
 
-    note_table_id = NOTE_TABLE_ID
-    comment_table_id = COMMENT_TABLE_ID
+    note_tid = feishu.ensure_table(NOTE_TABLE_ID, "小红书笔记", feishu.setup_note_table)
+    comment_tid = feishu.ensure_table(COMMENT_TABLE_ID, "小红书评论", feishu.setup_comment_table)
 
-    if not note_table_id:
-        print("  NOTE_TABLE_ID not set — auto-creating note table...")
-        note_table_id = feishu.create_table(f"小红书笔记 - {kw}")
-        feishu.setup_note_table(note_table_id)
-        feishu.add_fields([
-            {"field_name": "搜索关键词", "type": 1},
-            {"field_name": "爬取时间", "type": 1},
-        ], note_table_id)
-        print(f"  Auto-created note table: {note_table_id}")
-
-    if not comment_table_id and not SKIP_COMMENTS:
-        print("  COMMENT_TABLE_ID not set — auto-creating comment table...")
-        comment_table_id = feishu.create_table(f"小红书评论 - {kw}")
-        feishu.setup_comment_table(comment_table_id)
-        feishu.add_fields([
-            {"field_name": "搜索关键词", "type": 1},
-            {"field_name": "爬取时间", "type": 1},
-        ], comment_table_id)
-        print(f"  Auto-created comment table: {comment_table_id}")
-
+    # Download and upload media if not skipped
     note_media_tokens = {}
-    if not SKIP_MEDIA and note_table_id:
+    if not SKIP_MEDIA and note_tid:
         print(f"\n  --- Downloading & uploading media for {len(notes)} notes ---")
         for i, note in enumerate(notes):
             has_media = note.image_urls or note.video_url or note.cover_url
@@ -167,7 +148,7 @@ async def main(keyword: str = "", max_notes: int = 0):
     elif SKIP_MEDIA:
         print("  Media download skipped (SKIP_MEDIA set)")
 
-    if note_table_id:
+    if note_tid:
         note_records = [note_to_feishu_record(n) for n in notes]
         for j, r in enumerate(note_records):
             r["搜索关键词"] = kw
@@ -179,18 +160,16 @@ async def main(keyword: str = "", max_notes: int = 0):
                 r["视频附件"] = [{"file_token": mt["video"]}]
             if mt.get("images"):
                 r["图片附件"] = [{"file_token": ft} for ft in mt["images"]]
-        written = feishu.write_records(note_records, note_table_id)
+        written = feishu.write_records(note_records, note_tid)
         print(f"  Written {written}/{len(note_records)} note records")
 
-    if comment_table_id and all_comments:
+    if comment_tid and all_comments:
         comment_records = [comment_to_feishu_record(c) for c in all_comments]
         for r in comment_records:
             r["搜索关键词"] = kw
             r["爬取时间"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        written = feishu.write_records(comment_records, comment_table_id)
+        written = feishu.write_records(comment_records, comment_tid)
         print(f"  Written {written}/{len(comment_records)} comment records")
-    elif all_comments and not comment_table_id:
-        print("  No comment table available, skipping comment write")
 
     feishu.close()
 

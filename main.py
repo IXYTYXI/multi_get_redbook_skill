@@ -36,7 +36,7 @@ def cmd_check() -> int:
 
     note = NoteInfo(note_id="n1", title="t", author_nickname="a", image_urls="")
     user = XhsUserInfo(user_id="u1", nickname="a")
-    comment = CommentInfo(comment_id="c1", note_id="n1", content="hi")
+    comment = CommentInfo(comment_id="c1", note_id="n1", content="hi", parent_comment_id="", reply_to_nickname="", reply_to_user_id="")
 
     assert note_to_feishu_record(note)["标题"] == "t"
     assert user_to_feishu_record(user)["用户ID"] == "u1"

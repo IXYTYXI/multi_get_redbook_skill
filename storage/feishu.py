@@ -53,6 +53,22 @@ class FeishuBitable:
             "Content-Type": "application/json; charset=utf-8",
         }
 
+    def list_tables(self) -> list:
+        url = f"{FEISHU_API_BASE}/bitable/v1/apps/{self.app_token}/tables"
+        resp = self._client.get(url, headers=self._headers())
+        data = resp.json()
+        if data.get("code") != 0:
+            print(f"[Feishu] List tables error: {data.get('msg')}")
+            return []
+        items = data.get("data", {}).get("items", [])
+        return [{"table_id": t["table_id"], "name": t.get("name", "")} for t in items]
+
+    def find_table_by_name(self, name: str) -> str:
+        for t in self.list_tables():
+            if t["name"] == name:
+                return t["table_id"]
+        return ""
+
     def create_table(self, name: str) -> str:
         url = f"{FEISHU_API_BASE}/bitable/v1/apps/{self.app_token}/tables"
         resp = self._client.post(
@@ -64,6 +80,17 @@ class FeishuBitable:
         table_id = data["data"]["table_id"]
         print(f"[Feishu] Created table '{name}' with ID: {table_id}")
         return table_id
+
+    def ensure_table(self, table_id: str, name: str, setup_fn) -> str:
+        if table_id:
+            return table_id
+        existing = self.find_table_by_name(name)
+        if existing:
+            print(f"[Feishu] Reusing existing table '{name}' ({existing})")
+            return existing
+        tid = self.create_table(name)
+        setup_fn(tid)
+        return tid
 
     def add_fields(self, fields: List[dict], table_id: str = "") -> None:
         tid = table_id or self.table_id
@@ -135,8 +162,8 @@ class FeishuBitable:
             {"field_name": "评论ID", "type": 1},
             {"field_name": "笔记ID", "type": 1},
             {"field_name": "父评论ID", "type": 1},
+            {"field_name": "回复对象", "type": 1},
             {"field_name": "回复对象ID", "type": 1},
-            {"field_name": "回复对象昵称", "type": 1},
             {"field_name": "评论内容", "type": 1},
             {"field_name": "用户昵称", "type": 1},
             {"field_name": "用户ID", "type": 1},
@@ -271,8 +298,8 @@ def comment_to_feishu_record(comment) -> dict:
         "评论ID": comment.comment_id,
         "笔记ID": comment.note_id,
         "父评论ID": comment.parent_comment_id,
+        "回复对象": comment.reply_to_nickname,
         "回复对象ID": comment.reply_to_user_id,
-        "回复对象昵称": comment.reply_to_nickname,
         "评论内容": comment.content,
         "用户昵称": comment.user_nickname,
         "用户ID": comment.user_id,

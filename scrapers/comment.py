@@ -163,7 +163,7 @@ class CommentScraper:
                 if not cid or cid in seen:
                     continue
                 seen.add(cid)
-                comments.append(self._parse(c, note_id))
+                comments.append(self._parse(c, note_id, parent_comment_id=root_comment_id))
             if not inner.get("has_more", False) or len(comments) >= max_count:
                 break
             cursor = inner.get("cursor", "")
@@ -173,7 +173,7 @@ class CommentScraper:
 
         return comments[:max_count]
 
-    def _parse(self, c: dict, note_id: str) -> CommentInfo:
+    def _parse(self, c: dict, note_id: str, parent_comment_id: str = "") -> CommentInfo:
         user = c.get("user_info") or {}
         ct = c.get("create_time") or 0
         if isinstance(ct, (int, float)) and ct > 1000000000:
@@ -182,15 +182,17 @@ class CommentScraper:
         else:
             create_time = str(ct) if ct else ""
 
-        target_comment = c.get("target_comment") or {}
-        reply_to = target_comment.get("user_info") or {}
+        target = c.get("target_comment") or {}
+        target_user = target.get("user_info") or {}
+        reply_to_nickname = target_user.get("nickname", "")
+        reply_to_user_id = target_user.get("user_id", "")
 
         return CommentInfo(
             comment_id=c.get("id", ""),
             note_id=note_id,
-            parent_comment_id=target_comment.get("id", ""),
-            reply_to_user_id=reply_to.get("user_id", ""),
-            reply_to_nickname=reply_to.get("nickname", ""),
+            parent_comment_id=parent_comment_id,
+            reply_to_nickname=reply_to_nickname,
+            reply_to_user_id=reply_to_user_id,
             content=c.get("content", ""),
             user_nickname=user.get("nickname", ""),
             user_id=user.get("user_id", ""),
