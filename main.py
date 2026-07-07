@@ -305,6 +305,9 @@ async def _live_barrage(room_url: str, duration: int, output: str) -> int:
     dur = duration if duration > 0 else None
     scraper = LiveBarrageScraper()
 
+    if output == "feishu":
+        print("[WARN] Feishu output not yet implemented, falling back to console")
+
     def on_msg(msg):
         if output == "json":
             print(json.dumps(msg.to_dict(), ensure_ascii=False))
@@ -350,10 +353,12 @@ def main() -> int:
     p_suser.add_argument("keyword")
     p_suser.add_argument("-n", "--max-count", type=int, default=20, dest="n")
 
+    from config.settings import LIVE_OUTPUT_MODE, LIVE_DEFAULT_DURATION
+
     p_live = sub.add_parser("live-barrage", help="capture live-stream barrage messages")
     p_live.add_argument("room_url", help="Xiaohongshu live room URL")
-    p_live.add_argument("--duration", type=int, default=0, help="listen duration in seconds (0 = indefinite)")
-    p_live.add_argument("--output", choices=["console", "feishu", "json"], default="console", help="output mode")
+    p_live.add_argument("--duration", type=int, default=LIVE_DEFAULT_DURATION, help="listen duration in seconds (0 = indefinite)")
+    p_live.add_argument("--output", choices=["console", "feishu", "json"], default=LIVE_OUTPUT_MODE, help="output mode")
 
     p_all = sub.add_parser("scrape-all", help="full pipeline: search -> detail -> comments -> feishu")
     p_all.add_argument("--keyword", "-k", default="")
