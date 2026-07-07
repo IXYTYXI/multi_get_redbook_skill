@@ -136,8 +136,7 @@ class LiveBarrageScraper:
         self._room_url = ""
         self._frame_count = 0
         self._ws_matched = False
-        self._log_errors = 0
-        self._dropped_frames = 0
+        self._log_write_errors = 0
         self._page = None
         self._on_message_cb: Optional[Callable] = None
         # Heartbeat watchdog state
@@ -146,6 +145,7 @@ class LiveBarrageScraper:
         # Reconnect backoff state
         self._reconnect_count = 0
         self._reconnecting = False
+        self._last_reconnect_time = 0.0  # tracks when the last reconnect finished
 
     async def listen(
         self,
@@ -215,8 +215,8 @@ class LiveBarrageScraper:
                 await browser.close()
 
         print(f"[Live] Session ended. Captured {len(self._messages)} messages, {self._frame_count} raw frames.")
-        if self._log_errors:
-            print(f"[Live] Warning: {self._log_errors} frame log write errors ({self._dropped_frames} frames dropped).")
+        if self._log_write_errors:
+            print(f"[Live] Warning: {self._log_write_errors} JSONL write errors (frames dropped).")
         if self._reconnect_count:
             print(f"[Live] Reconnected {self._reconnect_count} time(s) during session.")
         return self._messages
@@ -240,26 +240,41 @@ class LiveBarrageScraper:
             pass
 
     async def _heartbeat_watchdog(self):
-        """Periodically checks that WS frames are still arriving.
+        """Periodically checks that target WS frames are still arriving.
 
-        If no frame has been received for ``HEARTBEAT_TIMEOUT_S`` seconds,
-        the connection is presumed stale and a reconnect is triggered.
+        Two failure modes are detected:
+        1. Target WS connected but stalled — no target frames for
+           ``HEARTBEAT_TIMEOUT_S`` seconds.
+        2. Post-reconnect stall — page reloaded but no target WS
+           (``longlink``) re-established within ``HEARTBEAT_TIMEOUT_S``.
         """
         while True:
             await asyncio.sleep(self.HEARTBEAT_TIMEOUT_S / 2)
             if self._stop_event and self._stop_event.is_set():
                 break
-            if not self._ws_matched:
-                # Not connected yet or already reconnecting — skip.
-                continue
-            idle = time.monotonic() - self._last_frame_time
-            if idle >= self.HEARTBEAT_TIMEOUT_S:
-                print(
-                    f"[Live] ⚠️  No WS frames for {int(idle)}s — "
-                    f"heartbeat timeout ({self.HEARTBEAT_TIMEOUT_S}s). Reconnecting..."
-                )
-                self._log_frame("heartbeat_timeout", "info", f"idle={int(idle)}s")
-                await self._attempt_reconnect()
+            now = time.monotonic()
+
+            if self._ws_matched:
+                # Normal case: target WS is connected.  Check for frame stall.
+                idle = now - self._last_frame_time
+                if idle >= self.HEARTBEAT_TIMEOUT_S:
+                    print(
+                        f"[Live] ⚠️  No target WS frames for {int(idle)}s — "
+                        f"heartbeat timeout ({self.HEARTBEAT_TIMEOUT_S}s). Reconnecting..."
+                    )
+                    self._log_frame("heartbeat_timeout", "info", f"idle={int(idle)}s")
+                    await self._attempt_reconnect()
+            elif self._last_reconnect_time > 0:
+                # Post-reconnect: page reloaded but no target WS appeared.
+                wait = now - self._last_reconnect_time
+                if wait >= self.HEARTBEAT_TIMEOUT_S:
+                    print(
+                        f"[Live] ⚠️  No target WS re-established {int(wait)}s after "
+                        f"reconnect. Retrying..."
+                    )
+                    self._log_frame("ws_match_timeout", "info",
+                                    f"waited={int(wait)}s after reconnect")
+                    await self._attempt_reconnect()
 
     def _on_websocket(self, ws):
         url = ws.url
@@ -321,7 +336,9 @@ class LiveBarrageScraper:
             print("[Live] Reloading page...")
             await self._page.reload(wait_until="domcontentloaded", timeout=60000)
             await asyncio.sleep(3)
-            self._last_frame_time = time.monotonic()
+            now = time.monotonic()
+            self._last_frame_time = now
+            self._last_reconnect_time = now
             print("[Live] Page reloaded. Waiting for new WebSocket connection...")
         except Exception as e:
             print(f"[Live] ⚠️  Reconnect #{self._reconnect_count} failed: {e}")
@@ -330,10 +347,12 @@ class LiveBarrageScraper:
 
     def _on_frame(self, direction: str, data, is_target: bool):
         self._frame_count += 1
-        self._last_frame_time = time.monotonic()
-        # Successful frame resets backoff counter.
-        if is_target and self._reconnect_count:
-            self._reconnect_count = 0
+        if is_target:
+            # Only target frames update the heartbeat timer — non-target WS
+            # (analytics, ads) must not mask a stalled longlink connection.
+            self._last_frame_time = time.monotonic()
+            if self._reconnect_count:
+                self._reconnect_count = 0
         ts = _now_iso()
         on_message = self._on_message_cb
 
@@ -434,13 +453,11 @@ class LiveBarrageScraper:
             self._capture_file.write(json.dumps(record, ensure_ascii=False) + "\n")
             self._capture_file.flush()
         except Exception as e:
-            self._log_errors += 1
-            self._dropped_frames += 1
-            if self._log_errors == 1:
-                print(f"[Live] ⚠️  Frame log write failed: {e}")
-            elif self._log_errors in (10, 100, 1000):
-                print(f"[Live] ⚠️  {self._log_errors} log write errors so far "
-                      f"({self._dropped_frames} frames dropped)")
+            self._log_write_errors += 1
+            if self._log_write_errors == 1:
+                print(f"[Live] ⚠️  JSONL write failed (frame dropped): {e}")
+            elif self._log_write_errors in (10, 100, 1000):
+                print(f"[Live] ⚠️  {self._log_write_errors} JSONL write errors so far")
 
     async def connect(self, room_url: str) -> str:
         self._room_url = room_url
