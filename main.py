@@ -290,11 +290,11 @@ async def _search_user(keyword: str, n: int) -> int:
     return 0 if users else 1
 
 
-def cmd_live_barrage(room_url: str, duration: int, output: str) -> int:
-    return asyncio.run(_live_barrage(room_url, duration, output))
+def cmd_live_barrage(room_url: str, duration: int, output: str, capture_dir: str) -> int:
+    return asyncio.run(_live_barrage(room_url, duration, output, capture_dir))
 
 
-async def _live_barrage(room_url: str, duration: int, output: str) -> int:
+async def _live_barrage(room_url: str, duration: int, output: str, capture_dir: str) -> int:
     from scrapers.live import LiveBarrageScraper
 
     try:
@@ -303,7 +303,7 @@ async def _live_barrage(room_url: str, duration: int, output: str) -> int:
         pass
 
     dur = duration if duration > 0 else None
-    scraper = LiveBarrageScraper()
+    scraper = LiveBarrageScraper(capture_dir=capture_dir or None)
 
     if output == "feishu":
         print("[WARN] Feishu output not yet implemented, falling back to console")
@@ -312,7 +312,10 @@ async def _live_barrage(room_url: str, duration: int, output: str) -> int:
         if output == "json":
             print(json.dumps(msg.to_dict(), ensure_ascii=False))
         else:
-            print(f"[{msg.message_type}] {msg.user_name}: {msg.content}")
+            label = msg.message_type.upper().ljust(8)
+            user = msg.user_name or "?"
+            text = msg.content[:200] if msg.content else "(no content)"
+            print(f"  [{label}] {user}: {text}")
 
     messages = await scraper.listen(room_url, duration=dur, on_message=on_msg)
     print(f"\nCaptured {len(messages)} messages total.")
@@ -359,6 +362,7 @@ def main() -> int:
     p_live.add_argument("room_url", help="Xiaohongshu live room URL")
     p_live.add_argument("--duration", type=int, default=LIVE_DEFAULT_DURATION, help="listen duration in seconds (0 = indefinite)")
     p_live.add_argument("--output", choices=["console", "feishu", "json"], default=LIVE_OUTPUT_MODE, help="output mode")
+    p_live.add_argument("--capture-dir", default="", dest="capture_dir", help="directory for raw WS frame captures (default: output/)")
 
     p_all = sub.add_parser("scrape-all", help="full pipeline: search -> detail -> comments -> feishu")
     p_all.add_argument("--keyword", "-k", default="")
@@ -381,7 +385,7 @@ def main() -> int:
     if args.command == "search-user":
         return cmd_search_user(args.keyword, args.n)
     if args.command == "live-barrage":
-        return cmd_live_barrage(args.room_url, args.duration, args.output)
+        return cmd_live_barrage(args.room_url, args.duration, args.output, args.capture_dir)
     if args.command == "scrape-all":
         return cmd_scrape_all(args.keyword, args.n)
     parser.print_help()
