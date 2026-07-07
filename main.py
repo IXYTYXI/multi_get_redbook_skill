@@ -295,6 +295,7 @@ def cmd_live_barrage(room_url: str, duration: int, output: str) -> int:
 
 
 async def _live_barrage(room_url: str, duration: int, output: str) -> int:
+    from core.browser import XhsBrowser
     from scrapers.live import LiveBarrageScraper
 
     try:
@@ -303,7 +304,6 @@ async def _live_barrage(room_url: str, duration: int, output: str) -> int:
         pass
 
     dur = duration if duration > 0 else None
-    scraper = LiveBarrageScraper()
 
     if output == "feishu":
         print("[WARN] Feishu output not yet implemented, falling back to console")
@@ -314,9 +314,21 @@ async def _live_barrage(room_url: str, duration: int, output: str) -> int:
         else:
             print(f"[{msg.message_type}] {msg.user_name}: {msg.content}")
 
-    messages = await scraper.listen(room_url, duration=dur, on_message=on_msg)
-    print(f"\nCaptured {len(messages)} messages total.")
-    return 0
+    browser = XhsBrowser()
+    await browser.start(headless=False)
+
+    try:
+        await browser.ensure_login(timeout=60)
+    except Exception:
+        print("[Live] Could not verify login, continuing anyway...")
+
+    try:
+        scraper = LiveBarrageScraper(browser)
+        messages = await scraper.listen(room_url, duration=dur, on_message=on_msg)
+        print(f"\nCaptured {len(messages)} messages total.")
+        return 0
+    finally:
+        await browser.close()
 
 
 def cmd_scrape_all(keyword: str, n: int) -> int:

@@ -1,6 +1,8 @@
 import os
 from pathlib import Path
 
+_SKILL_ROOT = Path(__file__).resolve().parent.parent
+
 # Load .env if python-dotenv is available; degrade gracefully if not so the
 # offline smoke test (`python main.py check`) runs without extra deps.
 try:
@@ -53,3 +55,5 @@ FEISHU_API_BASE = "https://open.feishu.cn/open-apis"
 LIVE_TABLE_ID = os.getenv("LIVE_TABLE_ID", "")
 LIVE_OUTPUT_MODE = os.getenv("LIVE_OUTPUT_MODE", "console")  # console | feishu | json
 LIVE_DEFAULT_DURATION = int(os.getenv("LIVE_DEFAULT_DURATION", "0"))  # 0 = indefinite
+LIVE_WS_OUTPUT_DIR = os.getenv("LIVE_WS_OUTPUT_DIR", str(_SKILL_ROOT / "output"))
+LIVE_RECONNECT_TIMEOUT = int(os.getenv("LIVE_RECONNECT_TIMEOUT", "60"))
