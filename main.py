@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 def cmd_check() -> int:
     """Offline smoke test: build models, exercise date filter, import modules."""
-    from models.data import NoteInfo, XhsUserInfo, CommentInfo
+    from models.data import NoteInfo, XhsUserInfo, CommentInfo, LiveBarrageInfo
     from core.datefilter import date_bounds, in_date_range
     from storage.feishu import (
         note_to_feishu_record,
@@ -33,6 +33,7 @@ def cmd_check() -> int:
     from scrapers.note import NoteScraper  # noqa: F401
     from scrapers.comment import CommentScraper  # noqa: F401
     from scrapers.user import UserScraper  # noqa: F401
+    from scrapers.live import LiveBarrageScraper  # noqa: F401
 
     note = NoteInfo(note_id="n1", title="t", author_nickname="a", image_urls="")
     user = XhsUserInfo(user_id="u1", nickname="a")
@@ -46,6 +47,12 @@ def cmd_check() -> int:
     assert s is not None and e is not None and s < e
     assert in_date_range(None, None, None) is True
     assert download_note_media(note)["cover"] is None
+
+    barrage = LiveBarrageInfo(
+        user_id="u1", user_name="test", content="hello",
+        message_type="barrage", room_id="r1",
+    )
+    assert barrage.to_dict()["content"] == "hello"
 
     print("xhs-scraper scaffold OK")
     return 0
@@ -283,6 +290,35 @@ async def _search_user(keyword: str, n: int) -> int:
     return 0 if users else 1
 
 
+def cmd_live_barrage(room_url: str, duration: int, output: str) -> int:
+    return asyncio.run(_live_barrage(room_url, duration, output))
+
+
+async def _live_barrage(room_url: str, duration: int, output: str) -> int:
+    from scrapers.live import LiveBarrageScraper
+
+    try:
+        sys.stdout.reconfigure(errors="replace")
+    except Exception:
+        pass
+
+    dur = duration if duration > 0 else None
+    scraper = LiveBarrageScraper()
+
+    if output == "feishu":
+        print("[WARN] Feishu output not yet implemented, falling back to console")
+
+    def on_msg(msg):
+        if output == "json":
+            print(json.dumps(msg.to_dict(), ensure_ascii=False))
+        else:
+            print(f"[{msg.message_type}] {msg.user_name}: {msg.content}")
+
+    messages = await scraper.listen(room_url, duration=dur, on_message=on_msg)
+    print(f"\nCaptured {len(messages)} messages total.")
+    return 0
+
+
 def cmd_scrape_all(keyword: str, n: int) -> int:
     from scrape_all import main as sa_main
     return asyncio.run(sa_main(keyword, n))
@@ -317,6 +353,13 @@ def main() -> int:
     p_suser.add_argument("keyword")
     p_suser.add_argument("-n", "--max-count", type=int, default=20, dest="n")
 
+    from config.settings import LIVE_OUTPUT_MODE, LIVE_DEFAULT_DURATION
+
+    p_live = sub.add_parser("live-barrage", help="capture live-stream barrage messages")
+    p_live.add_argument("room_url", help="Xiaohongshu live room URL")
+    p_live.add_argument("--duration", type=int, default=LIVE_DEFAULT_DURATION, help="listen duration in seconds (0 = indefinite)")
+    p_live.add_argument("--output", choices=["console", "feishu", "json"], default=LIVE_OUTPUT_MODE, help="output mode")
+
     p_all = sub.add_parser("scrape-all", help="full pipeline: search -> detail -> comments -> feishu")
     p_all.add_argument("--keyword", "-k", default="")
     p_all.add_argument("-n", "--max-notes", type=int, default=0, dest="n")
@@ -337,6 +380,8 @@ def main() -> int:
         return cmd_user(args.user_id, args.xsec_token, args.notes, args.n)
     if args.command == "search-user":
         return cmd_search_user(args.keyword, args.n)
+    if args.command == "live-barrage":
+        return cmd_live_barrage(args.room_url, args.duration, args.output)
     if args.command == "scrape-all":
         return cmd_scrape_all(args.keyword, args.n)
     parser.print_help()
