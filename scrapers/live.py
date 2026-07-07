@@ -19,6 +19,7 @@ from models.data import LiveBarrageInfo
 
 _OUTPUT_DIR = Path(__file__).resolve().parent.parent / "output"
 _CST = timezone(timedelta(hours=8))
+_JSON_DECODER = json.JSONDecoder()
 
 
 def _now_iso() -> str:
@@ -54,13 +55,21 @@ def _try_decode_frame(raw: bytes) -> Optional[dict]:
         return json.loads(text)
     except Exception:
         pass
-    # Attempt scanning for JSON substrings embedded in protobuf wrappers.
+    # Scan for the first valid JSON object embedded in protobuf wrappers.
     try:
         text = payload.decode("utf-8", errors="replace")
-        start = text.find("{")
-        end = text.rfind("}")
-        if start != -1 and end > start:
-            return json.loads(text[start : end + 1])
+        idx = 0
+        while idx < len(text):
+            pos = text.find("{", idx)
+            if pos == -1:
+                break
+            try:
+                obj, end = _JSON_DECODER.raw_decode(text, pos)
+                if isinstance(obj, dict):
+                    return obj
+            except (json.JSONDecodeError, ValueError):
+                pass
+            idx = pos + 1
     except Exception:
         pass
     return None
@@ -117,6 +126,9 @@ class LiveBarrageScraper:
         self._room_url = ""
         self._frame_count = 0
         self._ws_matched = False
+        self._log_errors = 0
+        self._page = None
+        self._on_message_cb: Optional[Callable] = None
 
     async def listen(
         self,
@@ -130,6 +142,7 @@ class LiveBarrageScraper:
         self._room_id = _extract_room_id(room_url) or "unknown"
         self._messages = []
         self._stop_event = asyncio.Event()
+        self._on_message_cb = on_message
 
         self._capture_dir.mkdir(parents=True, exist_ok=True)
         cap_path = self._capture_dir / f"ws_capture_{self._room_id}_{_now_ts()}.jsonl"
@@ -146,15 +159,16 @@ class LiveBarrageScraper:
                     raise RuntimeError("Login required. Run 'python main.py login' first.")
 
             page = browser.page
+            self._page = page
 
-            page.on("websocket", lambda ws: self._on_websocket(ws, on_message))
+            # Register WS listener on page AND context BEFORE navigation
+            # so popups/redirects during goto are not missed.
+            page.on("websocket", lambda ws: self._on_websocket(ws))
+            browser.context.on("page", lambda p: p.on("websocket", lambda ws: self._on_websocket(ws)))
 
             print(f"[Live] Navigating to {room_url} ...")
             await page.goto(room_url, wait_until="domcontentloaded", timeout=60000)
             await asyncio.sleep(3)
-
-            # Also listen on any new pages/popups.
-            browser.context.on("page", lambda p: p.on("websocket", lambda ws: self._on_websocket(ws, on_message)))
 
             print(f"[Live] Listening for barrage messages (room: {self._room_id}) ...")
             if duration:
@@ -174,6 +188,8 @@ class LiveBarrageScraper:
                 await browser.close()
 
         print(f"[Live] Session ended. Captured {len(self._messages)} messages, {self._frame_count} raw frames.")
+        if self._log_errors:
+            print(f"[Live] Warning: {self._log_errors} frame log write errors occurred.")
         return self._messages
 
     async def _wait_loop(self, duration: Optional[int]):
@@ -194,9 +210,9 @@ class LiveBarrageScraper:
         except asyncio.CancelledError:
             pass
 
-    def _on_websocket(self, ws, on_message: Optional[Callable]):
+    def _on_websocket(self, ws):
         url = ws.url
-        is_target = "longlink" in url or "ws" in url.split("?")[0].lower()
+        is_target = "longlink" in url
 
         tag = "TARGET" if is_target else "other"
         print(f"[Live] WebSocket opened [{tag}]: {url[:120]}...")
@@ -206,23 +222,42 @@ class LiveBarrageScraper:
             self._ws_matched = True
 
         def handle_send(data):
-            self._on_frame("send", data, on_message, is_target)
+            self._on_frame("send", data, is_target)
 
         def handle_recv(data):
-            self._on_frame("receive", data, on_message, is_target)
+            self._on_frame("receive", data, is_target)
 
         def handle_close():
-            print(f"[Live] WebSocket closed [{tag}]: {url[:80]}...")
             self._log_frame("ws_close", "info", url)
+            if is_target:
+                self._ws_matched = False
+                print(f"\n[Live] ⚠️  TARGET WebSocket DISCONNECTED: {url[:80]}")
+                print("[Live] ⚠️  Barrage stream lost. Attempting page reload to reconnect...")
+                self._log_frame("ws_reconnect", "info", "attempting page reload")
+                asyncio.get_event_loop().create_task(self._attempt_reconnect())
+            else:
+                print(f"[Live] WebSocket closed [{tag}]: {url[:80]}...")
 
         ws.on("framesent", handle_send)
         ws.on("framereceived", handle_recv)
         ws.on("close", handle_close)
         self._ws_connections.append(ws)
 
-    def _on_frame(self, direction: str, data, on_message: Optional[Callable], is_target: bool):
+    async def _attempt_reconnect(self):
+        if not self._page:
+            return
+        try:
+            print("[Live] Reloading page...")
+            await self._page.reload(wait_until="domcontentloaded", timeout=60000)
+            await asyncio.sleep(3)
+            print("[Live] Page reloaded. Waiting for new WebSocket connection...")
+        except Exception as e:
+            print(f"[Live] ⚠️  Reconnect failed: {e}")
+
+    def _on_frame(self, direction: str, data, is_target: bool):
         self._frame_count += 1
         ts = _now_iso()
+        on_message = self._on_message_cb
 
         if isinstance(data, bytes):
             encoded = base64.b64encode(data).encode("ascii").decode("ascii")
@@ -271,7 +306,8 @@ class LiveBarrageScraper:
         for payload in payloads:
             text = payload.decode("utf-8", errors="replace")
             readable = re.findall(r"[一-鿿\w@#]{2,}", text)
-            if readable and len(readable) >= 2:
+            total_len = sum(len(s) for s in readable)
+            if len(readable) >= 3 and total_len > 10:
                 content = " ".join(readable[:10])
                 msg = LiveBarrageInfo(
                     content=content,
@@ -319,8 +355,10 @@ class LiveBarrageScraper:
         try:
             self._capture_file.write(json.dumps(record, ensure_ascii=False) + "\n")
             self._capture_file.flush()
-        except Exception:
-            pass
+        except Exception as e:
+            self._log_errors += 1
+            if self._log_errors == 1:
+                print(f"[Live] ⚠️  Frame log write failed: {e}")
 
     async def connect(self, room_url: str) -> str:
         self._room_url = room_url
