@@ -48,3 +48,8 @@ DEFAULT_HEADERS = {
 }
 
 FEISHU_API_BASE = "https://open.feishu.cn/open-apis"
+
+# --- Live barrage (直播弹幕) ---
+LIVE_TABLE_ID = os.getenv("LIVE_TABLE_ID", "")
+LIVE_OUTPUT_MODE = os.getenv("LIVE_OUTPUT_MODE", "console")  # console | feishu | json
+LIVE_DEFAULT_DURATION = int(os.getenv("LIVE_DEFAULT_DURATION", "0"))  # 0 = indefinite

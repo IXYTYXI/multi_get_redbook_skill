@@ -63,3 +63,20 @@ class CommentInfo:
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+@dataclass
+class LiveBarrageInfo:
+    """A single message captured from a Xiaohongshu live-stream chat."""
+
+    user_id: str = ""
+    user_name: str = ""
+    content: str = ""
+    message_type: str = ""  # "barrage" | "gift" | "enter" | "follow" | "like" | "unknown"
+    timestamp: str = ""
+    room_id: str = ""
+    room_url: str = ""
+    raw_data: str = ""  # JSON string of the original protocol payload
+
+    def to_dict(self) -> dict:
+        return asdict(self)
