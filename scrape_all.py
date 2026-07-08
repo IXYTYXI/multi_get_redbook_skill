@@ -9,7 +9,7 @@ sys.stdout.reconfigure(errors="replace")
 
 import asyncio
 import os
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -166,7 +166,7 @@ async def main(keyword: str = "", max_notes: int = 0):
         note_records = [note_to_feishu_record(n) for n in notes]
         for j, r in enumerate(note_records):
             r["搜索关键词"] = kw
-            r["爬取时间"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            r["爬取时间"] = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
             mt = note_media_tokens.get(notes[j].note_id, {})
             if mt.get("cover"):
                 r["封面附件"] = [{"file_token": mt["cover"]}]
@@ -181,7 +181,7 @@ async def main(keyword: str = "", max_notes: int = 0):
         comment_records = [comment_to_feishu_record(c) for c in all_comments]
         for r in comment_records:
             r["搜索关键词"] = kw
-            r["爬取时间"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            r["爬取时间"] = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
         written = feishu.write_records(comment_records, comment_tid)
         print(f"  Written {written}/{len(comment_records)} comment records")
 
